@@ -1,6 +1,7 @@
+
 -- VIRTUELLER F-KLICK DIREKT BEIM START
 local VirtualInputManager = game:GetService("VirtualInputManager")
-print("[Flux] Skript gestartet – Sende sofortigen virtuellen F-Klick...")
+print("[Flux] Script Started - Failed to send Virtual MeeleAttack event.")
 VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 task.wait(0.05)
 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
