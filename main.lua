@@ -18,7 +18,7 @@ local lootFolder = workspace:WaitForChild("LootSpawned")
 local botRunning = false
 local botCoroutine = nil
 
--- Server Hop Funktion mit intelligentem Sicherheits-Payload
+-- Server Hop Funktion mit unendlicher Payload-Warteschleife
 local function performServerHop()
     print("[ServerHop] Starting Serverhop...")
     
@@ -28,41 +28,39 @@ local function performServerHop()
         Time = 5
     })
     
-    -- Optimierter Payload: Verhindert Abstürze beim 2., 3. und 4. Hop
+    -- Dieser Payload wartet aktiv, bis der Executor und das Internet bereit sind
     local payload = [[
-        if not game:IsLoaded() then 
-            game.Loaded:Wait() 
-        end
-        task.wait(5) -- Gibt dem Executor genug Zeit, um die Umgebung komplett zu laden
-        
-        local success, content = pcall(function()
-            return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
-        end)
-        
-        if success and content and not content:find("404") and not content:find("Too Many Requests") then
-            local func, err = loadstring(content)
-            if func then 
-                func() 
-            else 
-                warn("[AutoExec] Fehler im Code: " .. tostring(err))
+        task.spawn(function()
+            -- 1. Warte bis das Spiel geladen ist
+            if not game:IsLoaded() then 
+                game.Loaded:Wait() 
             end
-        else
-            warn("[AutoExec] GitHub Rate-Limit oder HTTP-Fehler. Versuche Fallback...")
-            task.wait(2)
-            -- Einfacher Retry-Versuch falls GitHub dichtgemacht hat
-            pcall(function()
-                loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua"))()
-            end)
-        end
+            
+            -- 2. Unendliche Schleife, bis HttpGet bereit ist und den Code erfolgreich lädt
+            local scriptLoaded = false
+            while not scriptLoaded do
+                task.wait(1)
+                local success, content = pcall(function()
+                    return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
+                end)
+                
+                -- Prüfen ob der Download geklappt hat und kein HTTP-Fehler vorliegt
+                if success and content and not content:find("404") and not content:find("Too Many Requests") then
+                    local func = loadstring(content)
+                    if func then
+                        scriptLoaded = true
+                        func() -- Skript starten
+                    end
+                end
+            end
+        end)
     ]]
     
-    -- Registrierung auf allen bekannten Executor-Funktionen
-    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport) or (OXYGEN_JJSPLOIT_TELEPORT and queue_on_teleport)
+    -- Payload registrieren
+    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
     if q then
         q(payload)
-        print("[ServerHop] Auto-Execution für den nächsten Server erfolgreich registriert.")
-    else
-        print("[ServerHop] WARNUNG: Executor unterstützt queue_on_teleport nicht!")
+        print("[ServerHop] Auto-Execution Payload erfolgreich gesetzt.")
     end
 
     local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
@@ -79,6 +77,7 @@ local function performServerHop()
                     TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
                 end)
                 task.wait(5)
+                return
             end
         end
     end
