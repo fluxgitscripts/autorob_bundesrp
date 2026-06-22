@@ -140,7 +140,7 @@ local function performServerHop()
         repeat task.wait() until game:IsLoaded()
         task.wait(3)
         pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua"))()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/autorob_bundesrp/refs/heads/main/main.lua"))()
         end)
     ]]
     
