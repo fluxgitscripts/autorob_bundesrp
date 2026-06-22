@@ -18,8 +18,165 @@ local lootFolder = workspace:WaitForChild("LootSpawned")
 local botRunning = false
 local botCoroutine = nil
 
--- Vorwärtsdeklaration der Funktion, damit sie sich im Fallback selbst neu aufrufen kann
-local performServerHop 
+-- Server History Einstellungen (Aus deiner Vorlage)
+local SERVER_HISTORY_FILE = "EldarX_ServerHistory.json"
+local MAX_HISTORY_SIZE = 20
+
+local function loadServerHistory()
+    if isfile and isfile(SERVER_HISTORY_FILE) then
+        local success, data = pcall(function()
+            return HttpService:JSONDecode(readfile(SERVER_HISTORY_FILE))
+        end)
+        if success and type(data) == "table" then
+            return data
+        end
+    end
+    return {}
+end
+
+local function saveServerHistory(history)
+    if writefile then
+        pcall(function()
+            writefile(SERVER_HISTORY_FILE, HttpService:JSONEncode(history))
+        end)
+    end
+end
+
+local function addCurrentServerToHistory()
+    local currentJobId = game.JobId
+    if not currentJobId then return end
+    
+    local history = loadServerHistory()
+    
+    for _, serverId in ipairs(history) do
+        if serverId == currentJobId then
+            return
+        end
+    end
+    
+    table.insert(history, 1, currentJobId)
+    
+    if #history > MAX_HISTORY_SIZE then
+        table.remove(history)
+    end
+    
+    saveServerHistory(history)
+end
+
+-- Serversuche (Modifiziert, damit man denselben Server rejoinen kann!)
+local function findNewServer()
+    local currentJobId = game.JobId
+    local history = loadServerHistory()
+    
+    local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=100", game.PlaceId)
+    
+    local success, result = pcall(function()
+        local response = game:HttpGet(url)
+        return HttpService:JSONDecode(response)
+    end)
+    
+    if not success or not result or not result.data then
+        warn("[ServerHop] Fehler beim Aufruf der ServerList API")
+        return nil
+    end
+    
+    local goodServers = {}
+    local anyServers = {}    
+    
+    print(string.format("[ServerHop] Server gefunden: %d", #result.data))
+    
+    for _, server in ipairs(result.data) do
+        if server.id and server.playing and server.maxPlayers then
+            local serverId = tostring(server.id)
+            
+            local inHistory = false
+            for _, histId in ipairs(history) do
+                if histId == serverId then
+                    inHistory = true
+                    break
+                end
+            end
+            
+            -- HIER GEÄNDERT: "serverId ~= currentJobId" entfernt, damit Rejoins möglich sind!
+            if server.playing < server.maxPlayers and server.playing > 0 then
+                table.insert(anyServers, server)
+                if server.playing >= 15 then
+                    table.insert(goodServers, server)
+                end
+            end
+        end
+    end
+    
+    print(string.format("[ServerHop] Verfügbare Server: %d (Gute Server: %d)", #anyServers, #goodServers))
+    
+    if #goodServers > 0 then
+        local selected = goodServers[math.random(1, #goodServers)]
+        print(string.format("[ServerHop] Ein guter Server wurde gewählt: %s (%d/%d Spieler)", selected.id, selected.playing, selected.maxPlayers))
+        return selected
+    elseif #anyServers > 0 then
+        local selected = anyServers[math.random(1, #anyServers)]
+        print(string.format("[ServerHop] Ein Server wurde gewählt: %s (%d/%d Spieler)", selected.id, selected.playing, selected.maxPlayers))
+        return selected
+    end
+    
+    return nil
+end
+
+-- Server Hop Ausführung (KICK ENTFERNT FÜR FUNKTION)
+local function performServerHop()
+    print("[ServerHop] Starte Serverhop...")
+    
+    OrionLib:MakeNotification({
+        Name = "Server Hop",
+        Content = "Suche Server... ServerHop startet automatisch!",
+        Time = 5
+    })
+    
+    -- Optionale History-Speicherung (kannst du auskommentieren, wenn du History gar nicht willst)
+    addCurrentServerToHistory()
+    
+    -- Extrem stabiler Payload mit Lade-Schleife
+    local payload = [[
+        repeat task.wait() until game:IsLoaded()
+        task.wait(3)
+        pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua"))()
+        end)
+    ]]
+    
+    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+    if q then
+        q(payload)
+        print("[ServerHop] Auto-Execution für den nächsten Server eingerichtet.")
+    end
+
+    -- KEIN KICK HIER! Sonst stürzt der Teleport ab.
+    task.wait(0.5)
+
+    local newServer = findNewServer()
+    
+    if newServer then
+        print(string.format("[ServerHop] Teleport-Versuch zu Server: %s", newServer.id))
+        
+        local success, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(game.PlaceId, newServer.id, player)
+        end)
+        
+        if not success then
+            warn("[ServerHop] Direkt-Teleport fehlgeschlagen: " .. tostring(err))
+            task.wait(2)
+            pcall(function()
+                TeleportService:Teleport(game.PlaceId, player)
+            end)
+        end
+    else
+        print("[ServerHop] Kein Server gefunden → Normaler Fallback Teleport")
+        task.wait(1)
+        pcall(function()
+            TeleportService:Teleport(game.PlaceId, player)
+        end)
+    end
+end
 
 local function getItemPosition(item)
     if not item or not item.Parent then return nil end
@@ -139,83 +296,6 @@ local function botLoop()
             end
         end
     end
-end
-
--- Server Hop Funktion mit eingebautem Sicherheits-Fallback
-performServerHop = function()
-    print("[ServerHop] Starting Serverhop...")
-    
-    OrionLib:MakeNotification({
-        Name = "Server Hop",
-        Content = "Kein Loot gefunden. Suche neuen Server...",
-        Time = 5
-    })
-    
-    local payload = [[
-        task.spawn(function()
-            if not game:IsLoaded() then 
-                game.Loaded:Wait() 
-            end
-            
-            local scriptLoaded = false
-            while not scriptLoaded do
-                task.wait(1)
-                local success, content = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
-                end)
-                
-                if success and content and not content:find("404") and not content:find("Too Many Requests") then
-                    local func = loadstring(content)
-                    if func then
-                        scriptLoaded = true
-                        func()
-                    end
-                end
-            end
-        end)
-    ]]
-    
-    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
-    if q then
-        q(payload)
-        print("[ServerHop] Auto-Execution Payload registriert.")
-    end
-
-    local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-    local success, result = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet(api)).data
-    end)
-    
-    if success and result then
-        for _, server in ipairs(result) do
-            if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
-                print(string.format("[ServerHop] Teleportiere zu Server: %s", server.id))
-                
-                pcall(function()
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
-                end)
-                
-                -- ==========================================
-                -- CRITICAL FALLBACK (Falls wir im selben Server bleiben)
-                -- ==========================================
-                task.wait(10) -- Wartet 10 Sekunden ob der Teleport klappt
-                print("[ServerHop] Im selben Server gelandet oder Teleport fehlgeschlagen! Starte Bot neu...")
-                
-                botRunning = true
-                if botCoroutine then pcall(function() coroutine.close(botCoroutine) end) end
-                botCoroutine = coroutine.create(botLoop)
-                coroutine.resume(botCoroutine)
-                return
-            end
-        end
-    end
-    
-    -- Wenn gar kein Server in der Liste war: Kurz warten und Bot wieder anwerfen
-    print("[ServerHop] Kein freier Server gefunden. Re-aktiviere Bot auf diesem Server...")
-    task.wait(3)
-    botRunning = true
-    botCoroutine = coroutine.create(botLoop)
-    coroutine.resume(botCoroutine)
 end
 
 -- 1. SCHNELLER, ABER SICHTBARER TWEEN ZU DEN STARTKOORDINATEN (AM ANFANG)
