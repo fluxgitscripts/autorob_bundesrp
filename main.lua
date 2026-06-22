@@ -1,3 +1,11 @@
+-- VIRTUELLER F-KLICK DIREKT BEIM START
+local VirtualInputManager = game:GetService("VirtualInputManager")
+print("[Flux] Skript gestartet – Sende sofortigen virtuellen F-Klick...")
+VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
+task.wait(0.05)
+VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+
+-- RESt DES SKRIPTS
 local OrionLib = loadstring(game:HttpGet("https://pastefy.app/2S5288c2/raw"))()
 
 local Players = game:GetService("Players")
@@ -7,10 +15,8 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local player = Players.LocalPlayer
 
--- Startkoordinaten (Polizei / Erster Punkt)
 local startCFrame = CFrame.new(3919.955322265625, 26.611604690551758, 35.344295501708984)
 
--- Remotes
 local meleeRemote = ReplicatedStorage:WaitForChild("shared/network@GlobalEvents"):WaitForChild("MeeleAttack")
 local collectRemote = ReplicatedStorage:WaitForChild("shared/network@GlobalEvents"):WaitForChild("CollectLoot")
 local lootFolder = workspace:WaitForChild("LootSpawned")
@@ -18,8 +24,7 @@ local lootFolder = workspace:WaitForChild("LootSpawned")
 local botRunning = false
 local botCoroutine = nil
 
--- Server History Einstellungen (Aus deiner Vorlage)
-local SERVER_HISTORY_FILE = "EldarX_ServerHistory.json"
+local SERVER_HISTORY_FILE = "Flux_ServerHistory.json"
 local MAX_HISTORY_SIZE = 20
 
 local function loadServerHistory()
@@ -63,7 +68,6 @@ local function addCurrentServerToHistory()
     saveServerHistory(history)
 end
 
--- Serversuche (Modifiziert, damit man denselben Server rejoinen kann!)
 local function findNewServer()
     local currentJobId = game.JobId
     local history = loadServerHistory()
@@ -76,14 +80,14 @@ local function findNewServer()
     end)
     
     if not success or not result or not result.data then
-        warn("[ServerHop] Fehler beim Aufruf der ServerList API")
+        warn("[ServerHop] Failed to fetch server list: " .. tostring(result))
         return nil
     end
     
     local goodServers = {}
     local anyServers = {}    
     
-    print(string.format("[ServerHop] Server gefunden: %d", #result.data))
+    print(string.format("[ServerHop] Server Found! %d", #result.data))
     
     for _, server in ipairs(result.data) do
         if server.id and server.playing and server.maxPlayers then
@@ -97,7 +101,6 @@ local function findNewServer()
                 end
             end
             
-            -- HIER GEÄNDERT: "serverId ~= currentJobId" entfernt, damit Rejoins möglich sind!
             if server.playing < server.maxPlayers and server.playing > 0 then
                 table.insert(anyServers, server)
                 if server.playing >= 15 then
@@ -107,35 +110,32 @@ local function findNewServer()
         end
     end
     
-    print(string.format("[ServerHop] Verfügbare Server: %d (Gute Server: %d)", #anyServers, #goodServers))
+    print(string.format("[ServerHop] Available Servers: %d (Good Servers: %d)", #anyServers, #goodServers))
     
     if #goodServers > 0 then
         local selected = goodServers[math.random(1, #goodServers)]
-        print(string.format("[ServerHop] Ein guter Server wurde gewählt: %s (%d/%d Spieler)", selected.id, selected.playing, selected.maxPlayers))
+        print(string.format("[ServerHop] A good server has been selected: %s (%d/%d players)", selected.id, selected.playing, selected.maxPlayers))
         return selected
     elseif #anyServers > 0 then
         local selected = anyServers[math.random(1, #anyServers)]
-        print(string.format("[ServerHop] Ein Server wurde gewählt: %s (%d/%d Spieler)", selected.id, selected.playing, selected.maxPlayers))
+        print(string.format("[ServerHop] A server has been selected: %s (%d/%d players)", selected.id, selected.playing, selected.maxPlayers))
         return selected
     end
     
     return nil
 end
 
--- Server Hop Ausführung (KICK ENTFERNT FÜR FUNKTION)
 local function performServerHop()
-    print("[ServerHop] Starte Serverhop...")
+    print("[ServerHop] Starting Serverhop...")
     
     OrionLib:MakeNotification({
         Name = "Server Hop",
-        Content = "Suche Server... ServerHop startet automatisch!",
+        Content = "Searching for servers... ServerHop will start automatically!",
         Time = 5
     })
     
-    -- Optionale History-Speicherung (kannst du auskommentieren, wenn du History gar nicht willst)
     addCurrentServerToHistory()
     
-    -- Extrem stabiler Payload mit Lade-Schleife
     local payload = [[
         repeat task.wait() until game:IsLoaded()
         task.wait(3)
@@ -147,30 +147,29 @@ local function performServerHop()
     local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
     if q then
         q(payload)
-        print("[ServerHop] Auto-Execution für den nächsten Server eingerichtet.")
+        print("[ServerHop] Auto-Execution for the next server set up.")
     end
 
-    -- KEIN KICK HIER! Sonst stürzt der Teleport ab.
     task.wait(0.5)
 
     local newServer = findNewServer()
     
     if newServer then
-        print(string.format("[ServerHop] Teleport-Versuch zu Server: %s", newServer.id))
+        print(string.format("[ServerHop] Teleport attempt to server: %s", newServer.id))
         
         local success, err = pcall(function()
             TeleportService:TeleportToPlaceInstance(game.PlaceId, newServer.id, player)
         end)
         
         if not success then
-            warn("[ServerHop] Direkt-Teleport fehlgeschlagen: " .. tostring(err))
+            warn("[ServerHop] Direkt-Teleport failed: " .. tostring(err))
             task.wait(2)
             pcall(function()
                 TeleportService:Teleport(game.PlaceId, player)
             end)
         end
     else
-        print("[ServerHop] Kein Server gefunden → Normaler Fallback Teleport")
+        print("[ServerHop] No suitable server found. Retrying in 10 seconds...")
         task.wait(1)
         pcall(function()
             TeleportService:Teleport(game.PlaceId, player)
@@ -210,7 +209,6 @@ local function botLoop()
         local lootItems = lootFolder:GetChildren()
         local foundSomething = false
 
-        -- 1. Loot mit ID einsammeln
         local itemToCollect = nil
         local currentId = nil
         for _, item in pairs(lootItems) do
@@ -232,11 +230,10 @@ local function botLoop()
             end
             local arguments = { [1] = currentId }
             collectRemote:FireServer(unpack(arguments))
-            print(string.format("[LootBot]: Collected ID: %s", tostring(currentId)))
+            print(string.format("[Flux] Autorob: Collected ID: %s", tostring(currentId)))
             continue
         end
 
-        -- 2. Ungebrochenes Loot angreifen (keine ID)
         local itemToAttack = nil
         for _, item in pairs(lootItems) do
             local hasId = item:GetAttribute("Id") or item:GetAttribute("id")
@@ -266,9 +263,8 @@ local function botLoop()
             end
         end
 
-        -- 3. WENN NIX GEFUNDEN WURDE -> Zum zweiten Punkt tweenen
         if not foundSomething then
-            print("[LootBot]: Kein Loot auf der Map! Tweene zu den End-Koordinaten...")
+            print("[Flux] Autorob: No Loot found on the map! Tweening to End Coordinates...")
             
             local f = 0.5 
             local tweenInfoEnd = TweenInfo.new(f, Enum.EasingStyle.Linear)
@@ -298,29 +294,27 @@ local function botLoop()
     end
 end
 
--- 1. SCHNELLER, ABER SICHTBARER TWEEN ZU DEN STARTKOORDINATEN (AM ANFANG)
 local f_start = 0.7 
 local tweenInfoStart = TweenInfo.new(f_start, Enum.EasingStyle.Linear)
 local hrp = player.Character and player.Character:WaitForChild("HumanoidRootPart", 10)
 
 if hrp then
-    print("[LootBot]: Starte initialen Tween zur Position...")
+    print("[Flux] Autorob Started - Tweening to Start Position...")
     local tween = TweenService:Create(hrp, tweenInfoStart, {CFrame = startCFrame})
     tween:Play()
     tween.Completed:Wait() 
 end
 
--- 2. ORION LIBRARY UI & AUTO-START
 local Window = OrionLib:MakeWindow({
-    Name = "Loot Bot", 
+    Name = "Flux Autorob - Bundes RP", 
     HidePremium = true, 
     SaveConfig = false, 
-    IntroText = "Night System"
+    IntroText = "Flux Autorob, Loading...",
 })
 
 local MainTab = Window:MakeTab({
     Name = "Main",
-    Icon = "rbxassetid://4483345997",
+    Icon = "rbxassetid://76479561414083",
     PremiumOnly = false
 })
 
@@ -333,17 +327,17 @@ MainTab:AddToggle({
             if botCoroutine then coroutine.close(botCoroutine) end
             botCoroutine = coroutine.create(botLoop)
             coroutine.resume(botCoroutine)
-            print("[LootBot]: Started")
+            print("[Flux] Autorob Started")
         else
             if botCoroutine then
                 coroutine.close(botCoroutine)
                 botCoroutine = nil
             end
-            print("[LootBot]: Stopped")
+            print("[Flux] Autorob Stopped")
         end
     end
 })
 
-MainTab:AddParagraph("How to use the Autorob!","Enable the Autorob Toggle. Then punch 1 time to activate Autorob. Then it will automatically collect the Loot.")
+MainTab:AddParagraph("How to use the Autorob!","The script automatically triggers the virtual punch at the start and then runs the loop.")
 
 OrionLib:Init()
