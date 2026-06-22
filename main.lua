@@ -18,71 +18,8 @@ local lootFolder = workspace:WaitForChild("LootSpawned")
 local botRunning = false
 local botCoroutine = nil
 
--- Server Hop Funktion mit unendlicher Payload-Warteschleife
-local function performServerHop()
-    print("[ServerHop] Starting Serverhop...")
-    
-    OrionLib:MakeNotification({
-        Name = "Server Hop",
-        Content = "Kein Loot gefunden. Suche neuen Server...",
-        Time = 5
-    })
-    
-    -- Dieser Payload wartet aktiv, bis der Executor und das Internet bereit sind
-    local payload = [[
-        task.spawn(function()
-            -- 1. Warte bis das Spiel geladen ist
-            if not game:IsLoaded() then 
-                game.Loaded:Wait() 
-            end
-            
-            -- 2. Unendliche Schleife, bis HttpGet bereit ist und den Code erfolgreich lädt
-            local scriptLoaded = false
-            while not scriptLoaded do
-                task.wait(1)
-                local success, content = pcall(function()
-                    return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
-                end)
-                
-                -- Prüfen ob der Download geklappt hat und kein HTTP-Fehler vorliegt
-                if success and content and not content:find("404") and not content:find("Too Many Requests") then
-                    local func = loadstring(content)
-                    if func then
-                        scriptLoaded = true
-                        func() -- Skript starten
-                    end
-                end
-            end
-        end)
-    ]]
-    
-    -- Payload registrieren
-    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
-    if q then
-        q(payload)
-        print("[ServerHop] Auto-Execution Payload erfolgreich gesetzt.")
-    end
-
-    local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
-    local success, result = pcall(function()
-        return HttpService:JSONDecode(game:HttpGet(api)).data
-    end)
-    
-    if success and result then
-        for _, server in ipairs(result) do
-            if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
-                print(string.format("[ServerHop] Teleportiere zu Server: %s", server.id))
-                
-                pcall(function()
-                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
-                end)
-                task.wait(5)
-                return
-            end
-        end
-    end
-    print("[ServerHop] Kein freier Server gefunden.")
-end
+-- Vorwärtsdeklaration der Funktion, damit sie sich im Fallback selbst neu aufrufen kann
+local performServerHop 
 
 local function getItemPosition(item)
     if not item or not item.Parent then return nil end
@@ -202,6 +139,83 @@ local function botLoop()
             end
         end
     end
+end
+
+-- Server Hop Funktion mit eingebautem Sicherheits-Fallback
+performServerHop = function()
+    print("[ServerHop] Starting Serverhop...")
+    
+    OrionLib:MakeNotification({
+        Name = "Server Hop",
+        Content = "Kein Loot gefunden. Suche neuen Server...",
+        Time = 5
+    })
+    
+    local payload = [[
+        task.spawn(function()
+            if not game:IsLoaded() then 
+                game.Loaded:Wait() 
+            end
+            
+            local scriptLoaded = false
+            while not scriptLoaded do
+                task.wait(1)
+                local success, content = pcall(function()
+                    return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
+                end)
+                
+                if success and content and not content:find("404") and not content:find("Too Many Requests") then
+                    local func = loadstring(content)
+                    if func then
+                        scriptLoaded = true
+                        func()
+                    end
+                end
+            end
+        end)
+    ]]
+    
+    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+    if q then
+        q(payload)
+        print("[ServerHop] Auto-Execution Payload registriert.")
+    end
+
+    local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
+    local success, result = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet(api)).data
+    end)
+    
+    if success and result then
+        for _, server in ipairs(result) do
+            if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
+                print(string.format("[ServerHop] Teleportiere zu Server: %s", server.id))
+                
+                pcall(function()
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
+                end)
+                
+                -- ==========================================
+                -- CRITICAL FALLBACK (Falls wir im selben Server bleiben)
+                -- ==========================================
+                task.wait(10) -- Wartet 10 Sekunden ob der Teleport klappt
+                print("[ServerHop] Im selben Server gelandet oder Teleport fehlgeschlagen! Starte Bot neu...")
+                
+                botRunning = true
+                if botCoroutine then pcall(function() coroutine.close(botCoroutine) end) end
+                botCoroutine = coroutine.create(botLoop)
+                coroutine.resume(botCoroutine)
+                return
+            end
+        end
+    end
+    
+    -- Wenn gar kein Server in der Liste war: Kurz warten und Bot wieder anwerfen
+    print("[ServerHop] Kein freier Server gefunden. Re-aktiviere Bot auf diesem Server...")
+    task.wait(3)
+    botRunning = true
+    botCoroutine = coroutine.create(botLoop)
+    coroutine.resume(botCoroutine)
 end
 
 -- 1. SCHNELLER, ABER SICHTBARER TWEEN ZU DEN STARTKOORDINATEN (AM ANFANG)
