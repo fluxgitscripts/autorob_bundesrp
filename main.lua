@@ -7,7 +7,7 @@ local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
 local player = Players.LocalPlayer
 
--- Startkoordinaten (für den allerersten schnellen Teleport beim Starten)
+-- Startkoordinaten (Polizei / Erster Punkt)
 local startCFrame = CFrame.new(3919.955322265625, 26.611604690551758, 35.344295501708984)
 
 -- Remotes
@@ -22,7 +22,14 @@ local botCoroutine = nil
 local function performServerHop()
     print("[ServerHop] Starting Serverhop...")
     
+    OrionLib:MakeNotification({
+        Name = "Server Hop",
+        Content = "Suche neuen Server... ServerHop startet automatisch!",
+        Time = 5
+    })
+    
     local payload = [[
+        repeat wait() until game:IsLoaded()
         wait(3)
         loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua"))()
     ]]
@@ -30,10 +37,9 @@ local function performServerHop()
     local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
     if q then
         q(payload)
-        print("[ServerHop] Auto-Execution for next Server set up.")
+        print("[ServerHop] Auto-Execution für den nächsten Server registriert.")
     end
 
-    print("[ServerHop] Suche neuen Server...")
     local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
     local success, result = pcall(function()
         return HttpService:JSONDecode(game:HttpGet(api)).data
@@ -42,13 +48,8 @@ local function performServerHop()
     if success and result then
         for _, server in ipairs(result) do
             if server.playing and server.playing < server.maxPlayers and server.id ~= game.JobId then
-                print(string.format("[ServerHop] Teleport tried to server %s", server.id))
+                print(string.format("[ServerHop] Teleportiere zu Server: %s", server.id))
                 
-                pcall(function()
-                    player:Kick("Made by @7dmb & zzkxnsti Searching for new Server. ServerHop happens automatically...")
-                end)
-                task.wait(0.5)  
-
                 pcall(function()
                     TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
                 end)
@@ -147,22 +148,20 @@ local function botLoop()
             end
         end
 
-        -- 3. WENN NIX GEFUNDEN WURDE -> Zu deinen neuen Koordinaten tweenen
+        -- 3. WENN NIX GEFUNDEN WURDE -> Zum zweiten Punkt tweenen
         if not foundSomething then
-            print("[LootBot]: Kein Loot auf der Map! Tweene zu den neuen Koordinaten...")
+            print("[LootBot]: Kein Loot auf der Map! Tweene zu den End-Koordinaten...")
             
-            -- Deine Tween-Konfiguration für das Ende
-            local f = 0.5 -- Time
+            local f = 0.5 -- Zeit für den End-Tween
             local tweenInfoEnd = TweenInfo.new(f, Enum.EasingStyle.Linear)
             local endCFrame = CFrame.new(3017.068359375, 257.3508605957031, 363.1561279296875)
             
             local endTween = TweenService:Create(hrp, tweenInfoEnd, {CFrame = endCFrame})
             endTween:Play()
-            endTween.Completed:Wait() -- Wartet, bis der Tween am Ziel angekommen ist
+            endTween.Completed:Wait() 
             
-            task.wait(3) -- Wartet dort oben kurz 3 Sekunden ab
+            task.wait(3) -- Wartet dort kurz 3 Sekunden ab
             
-            -- Letzter Check, ob wirklich gähnende Leere herrscht
             local finalCheck = lootFolder:GetChildren()
             local immerNochNix = true
             for _, item in pairs(finalCheck) do
@@ -181,15 +180,16 @@ local function botLoop()
     end
 end
 
--- 1. SCHNELLER TWEEN ZU DEN STARTKOORDINATEN (BEIM ERSTEN LADEN)
-local f_start = 0.1 
+-- 1. SCHNELLER, ABER SICHTBARER TWEEN ZU DEN STARTKOORDINATEN (AM ANFANG)
+local f_start = 0.7 -- Erhöht von 0.1 auf 0.7 für einen echten, schnellen Tween
 local tweenInfoStart = TweenInfo.new(f_start, Enum.EasingStyle.Linear)
 local hrp = player.Character and player.Character:WaitForChild("HumanoidRootPart", 10)
 
 if hrp then
+    print("[LootBot]: Starte initialen Tween zur Position...")
     local tween = TweenService:Create(hrp, tweenInfoStart, {CFrame = startCFrame})
     tween:Play()
-    tween.Completed:Wait() 
+    tween.Completed:Wait() -- Wartet, bis der Charakter da ist, bevor das UI lädt
 end
 
 -- 2. ORION LIBRARY UI & AUTO-START
