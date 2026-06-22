@@ -18,26 +18,51 @@ local lootFolder = workspace:WaitForChild("LootSpawned")
 local botRunning = false
 local botCoroutine = nil
 
--- Server Hop Funktion
+-- Server Hop Funktion mit intelligentem Sicherheits-Payload
 local function performServerHop()
     print("[ServerHop] Starting Serverhop...")
     
     OrionLib:MakeNotification({
         Name = "Server Hop",
-        Content = "Suche neuen Server... ServerHop startet automatisch!",
+        Content = "Kein Loot gefunden. Suche neuen Server...",
         Time = 5
     })
     
+    -- Optimierter Payload: Verhindert Abstürze beim 2., 3. und 4. Hop
     local payload = [[
-        repeat wait() until game:IsLoaded()
-        wait(3)
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/autorob_bundesrp/refs/heads/main/main.lua"))()
+        if not game:IsLoaded() then 
+            game.Loaded:Wait() 
+        end
+        task.wait(5) -- Gibt dem Executor genug Zeit, um die Umgebung komplett zu laden
+        
+        local success, content = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua")
+        end)
+        
+        if success and content and not content:find("404") and not content:find("Too Many Requests") then
+            local func, err = loadstring(content)
+            if func then 
+                func() 
+            else 
+                warn("[AutoExec] Fehler im Code: " .. tostring(err))
+            end
+        else
+            warn("[AutoExec] GitHub Rate-Limit oder HTTP-Fehler. Versuche Fallback...")
+            task.wait(2)
+            -- Einfacher Retry-Versuch falls GitHub dichtgemacht hat
+            pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/fluxgitscripts/Flux-Autorob/refs/heads/main/main.lua"))()
+            end)
+        end
     ]]
     
-    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+    -- Registrierung auf allen bekannten Executor-Funktionen
+    local q = queue_on_teleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport) or (OXYGEN_JJSPLOIT_TELEPORT and queue_on_teleport)
     if q then
         q(payload)
-        print("[ServerHop] Auto-Execution für den nächsten Server registriert.")
+        print("[ServerHop] Auto-Execution für den nächsten Server erfolgreich registriert.")
+    else
+        print("[ServerHop] WARNUNG: Executor unterstützt queue_on_teleport nicht!")
     end
 
     local api = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"
@@ -152,7 +177,7 @@ local function botLoop()
         if not foundSomething then
             print("[LootBot]: Kein Loot auf der Map! Tweene zu den End-Koordinaten...")
             
-            local f = 0.5 -- Zeit für den End-Tween
+            local f = 0.5 
             local tweenInfoEnd = TweenInfo.new(f, Enum.EasingStyle.Linear)
             local endCFrame = CFrame.new(3017.068359375, 257.3508605957031, 363.1561279296875)
             
@@ -160,7 +185,7 @@ local function botLoop()
             endTween:Play()
             endTween.Completed:Wait() 
             
-            task.wait(3) -- Wartet dort kurz 3 Sekunden ab
+            task.wait(3) 
             
             local finalCheck = lootFolder:GetChildren()
             local immerNochNix = true
@@ -181,7 +206,7 @@ local function botLoop()
 end
 
 -- 1. SCHNELLER, ABER SICHTBARER TWEEN ZU DEN STARTKOORDINATEN (AM ANFANG)
-local f_start = 0.7 -- Erhöht von 0.1 auf 0.7 für einen echten, schnellen Tween
+local f_start = 0.7 
 local tweenInfoStart = TweenInfo.new(f_start, Enum.EasingStyle.Linear)
 local hrp = player.Character and player.Character:WaitForChild("HumanoidRootPart", 10)
 
@@ -189,7 +214,7 @@ if hrp then
     print("[LootBot]: Starte initialen Tween zur Position...")
     local tween = TweenService:Create(hrp, tweenInfoStart, {CFrame = startCFrame})
     tween:Play()
-    tween.Completed:Wait() -- Wartet, bis der Charakter da ist, bevor das UI lädt
+    tween.Completed:Wait() 
 end
 
 -- 2. ORION LIBRARY UI & AUTO-START
